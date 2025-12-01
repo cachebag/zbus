@@ -1,18 +1,9 @@
 use proc_macro2::TokenStream;
-use proc_macro_crate::{crate_name, FoundCrate};
-use quote::{format_ident, quote};
+use quote::quote;
 use zvariant_utils::{case, def_attrs};
 
 pub fn zvariant_path() -> TokenStream {
-    if let Ok(FoundCrate::Name(name)) = crate_name("zvariant") {
-        let ident = format_ident!("{}", name);
-        quote! { ::#ident }
-    } else if let Ok(FoundCrate::Name(name)) = crate_name("zbus") {
-        let ident = format_ident!("{}", name);
-        quote! { ::#ident::zvariant }
-    } else {
-        quote! { ::zvariant }
-    }
+    quote! { ::zvariant }
 }
 
 pub fn rename_identifier(

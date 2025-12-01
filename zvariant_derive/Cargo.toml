@@ -24,7 +24,6 @@ gvariant = ["zvariant_utils/gvariant", "zvariant/gvariant"]
 proc-macro2.workspace = true
 syn.workspace = true
 quote.workspace = true
-proc-macro-crate.workspace = true
 zvariant_utils = { path = "../zvariant_utils", version = "3.2.0" }
 
 [dev-dependencies]

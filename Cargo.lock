@@ -2170,7 +2170,6 @@ version = "5.13.0"
 dependencies = [
  "async-io",
  "futures-util",
- "proc-macro-crate",
  "proc-macro2",
  "quote",
  "serde",
@@ -2296,7 +2295,6 @@ name = "zvariant_derive"
 version = "5.8.0"
 dependencies = [
  "enumflags2",
- "proc-macro-crate",
  "proc-macro2",
  "quote",
  "serde",

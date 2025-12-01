@@ -1,17 +1,11 @@
 use std::fmt::Display;
 
 use proc_macro2::{Span, TokenStream};
-use proc_macro_crate::{crate_name, FoundCrate};
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::{Attribute, FnArg, Ident, Pat, PatIdent, PatType};
 
 pub fn zbus_path() -> TokenStream {
-    if let Ok(FoundCrate::Name(name)) = crate_name("zbus") {
-        let ident = format_ident!("{}", name);
-        quote! { ::#ident }
-    } else {
-        quote! { ::zbus }
-    }
+    quote! { ::zbus }
 }
 
 pub fn typed_arg(arg: &FnArg) -> Option<&PatType> {
