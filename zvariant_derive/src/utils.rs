@@ -3,8 +3,19 @@ use proc_macro_crate::{crate_name, FoundCrate};
 use quote::{format_ident, quote};
 use zvariant_utils::{case, def_attrs};
 
-pub fn zvariant_path() -> TokenStream {
-    if let Ok(FoundCrate::Name(name)) = crate_name("zvariant") {
+/// Parses the `crate` attribute value into an identifier.
+pub fn parse_crate_path(crate_attr: Option<&str>) -> Result<Option<syn::Ident>, syn::Error> {
+    crate_attr.map(syn::parse_str).transpose()
+}
+
+/// Returns the path to the zvariant crate.
+///
+/// If a custom crate path is provided via the `crate` attribute, it will be used.
+/// Otherwise, uses `proc-macro-crate` to detect the crate name.
+pub fn zvariant_path(crate_path: Option<&syn::Ident>) -> TokenStream {
+    if let Some(ident) = crate_path {
+        quote! { ::#ident }
+    } else if let Ok(FoundCrate::Name(name)) = crate_name("zvariant") {
         let ident = format_ident!("{}", name);
         quote! { ::#ident }
     } else if let Ok(FoundCrate::Name(name)) = crate_name("zbus") {
@@ -44,11 +55,11 @@ def_attrs! {
     crate zbus, zvariant;
 
     /// Attributes defined on structures.
-    pub StructAttributes("struct") { signature str, rename_all str, deny_unknown_fields none };
+    pub StructAttributes("struct") { signature str, rename_all str, deny_unknown_fields none, krate str };
     /// Attributes defined on fields.
     pub FieldAttributes("field") { rename str };
     /// Attributes defined on enumerations.
-    pub EnumAttributes("enum") { signature str, rename_all str };
+    pub EnumAttributes("enum") { signature str, rename_all str, krate str };
     /// Attributes defined on variants.
     pub VariantAttributes("variant") { rename str };
 }

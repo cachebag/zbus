@@ -254,6 +254,11 @@ pub fn iter_meta_lists(
 /// 4. Invalid literal type for attributes with values.
 #[macro_export]
 macro_rules! def_attrs {
+    // Helper to get the attribute name string (for ALLOWED_ATTRS)
+    // Special case: krate -> "crate" (allows users to write #[zvariant(crate = "...")])
+    (@attr_name krate $kind:tt) => { "crate" };
+    (@attr_name $attr_name:ident $kind:tt) => { ::std::stringify!($attr_name) };
+
     (@attr_ty str) => {::std::option::Option<::std::string::String>};
     (@attr_ty bool) => {::std::option::Option<bool>};
     (@attr_ty [str]) => {::std::option::Option<::std::vec::Vec<::std::string::String>>};
@@ -276,6 +281,18 @@ macro_rules! def_attrs {
             $self.$attr_name = ::std::option::Option::Some(value.value());
             return Ok(());
         }
+    };
+    (@match_attr str krate, $meta:ident, $self:ident) => {
+        $crate::def_attrs!(
+            @match_attr_with
+            krate,
+            $meta,
+            $self,
+            $crate::macros::match_attribute_with_str_value(
+                $meta,
+                "crate",
+            )
+        )
     };
     (@match_attr str $attr_name:ident, $meta:ident, $self:ident) => {
         $crate::def_attrs!(
@@ -463,7 +480,7 @@ macro_rules! def_attrs {
         );+;
     ) => {
         static ALLOWED_ATTRS: &[&'static str] = &[
-            $($(::std::stringify!($attr_name),)+)+
+            $($($crate::def_attrs!(@attr_name $attr_name $kind),)+)+
         ];
 
         static ALLOWED_LISTS: &[&'static str] = &[
