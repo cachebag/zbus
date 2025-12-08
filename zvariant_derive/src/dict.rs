@@ -16,12 +16,17 @@ fn dict_name_for_field(
 
 /// Implements `Serialize` for structs as D-Bus dictionaries via a serde helper.
 pub fn expand_serialize_derive(input: DeriveInput) -> Result<TokenStream, Error> {
-    let StructAttributes { rename_all, .. } = StructAttributes::parse(&input.attrs)?;
+    let StructAttributes {
+        rename_all,
+        crate_path: crate_attr,
+        ..
+    } = StructAttributes::parse(&input.attrs)?;
+    let crate_path = parse_crate_path(crate_attr.as_deref())?;
     let rename_all_str = rename_all.as_deref().unwrap_or("snake_case");
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let name = &input.ident;
     let helper = format_ident!("__SerializeDict{}", name);
-    let zv = zvariant_path();
+    let zv = zvariant_path(crate_path.as_ref());
 
     let mut field_defs = Vec::new();
     let mut field_inits = Vec::new();
@@ -29,7 +34,7 @@ pub fn expand_serialize_derive(input: DeriveInput) -> Result<TokenStream, Error>
         for field in &data.fields {
             let ident = field.ident.as_ref().unwrap();
             let ty = &field.ty;
-            let FieldAttributes { rename } = FieldAttributes::parse(&field.attrs)?;
+            let FieldAttributes { rename, .. } = FieldAttributes::parse(&field.attrs)?;
             let dict_name = dict_name_for_field(field, rename, rename_all.as_deref())?;
             let is_opt = macros::ty_is_option(ty);
             if is_opt {
@@ -90,10 +95,12 @@ pub fn expand_deserialize_derive(input: DeriveInput) -> Result<TokenStream, Erro
     let StructAttributes {
         rename_all,
         deny_unknown_fields,
+        crate_path: crate_attr,
         ..
     } = StructAttributes::parse(&input.attrs)?;
+    let crate_path = parse_crate_path(crate_attr.as_deref())?;
     let rename_all_str = rename_all.as_deref().unwrap_or("snake_case");
-    let zv = zvariant_path();
+    let zv = zvariant_path(crate_path.as_ref());
 
     // Create a new generics with a 'de lifetime
     let mut generics = input.generics.clone();
@@ -119,7 +126,7 @@ pub fn expand_deserialize_derive(input: DeriveInput) -> Result<TokenStream, Erro
         for field in &data.fields {
             let ident = field.ident.as_ref().unwrap();
             let ty = &field.ty;
-            let FieldAttributes { rename } = FieldAttributes::parse(&field.attrs)?;
+            let FieldAttributes { rename, .. } = FieldAttributes::parse(&field.attrs)?;
             let dict_name = dict_name_for_field(field, rename, rename_all.as_deref())?;
             let is_opt = macros::ty_is_option(ty);
 

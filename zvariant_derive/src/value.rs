@@ -14,31 +14,31 @@ pub enum ValueType {
 }
 
 pub fn expand_derive(ast: DeriveInput, value_type: ValueType) -> Result<TokenStream, Error> {
-    let zv = zvariant_path();
+    let StructAttributes {
+        signature,
+        rename_all,
+        crate_path: crate_attr,
+        ..
+    } = StructAttributes::parse(&ast.attrs)?;
+    let crate_path = parse_crate_path(crate_attr.as_deref())?;
+    let zv = zvariant_path(crate_path.as_ref());
+
+    let signature = signature.map(|signature| match signature.as_str() {
+        "dict" => "a{sv}".to_string(),
+        _ => signature,
+    });
 
     match &ast.data {
         Data::Struct(ds) => match &ds.fields {
-            Fields::Named(_) | Fields::Unnamed(_) => {
-                let StructAttributes {
-                    signature,
-                    rename_all,
-                    ..
-                } = StructAttributes::parse(&ast.attrs)?;
-                let signature = signature.map(|signature| match signature.as_str() {
-                    "dict" => "a{sv}".to_string(),
-                    _ => signature,
-                });
-
-                impl_struct(
-                    value_type,
-                    ast.ident,
-                    ast.generics,
-                    &ds.fields,
-                    signature,
-                    &zv,
-                    rename_all,
-                )
-            }
+            Fields::Named(_) | Fields::Unnamed(_) => impl_struct(
+                value_type,
+                ast.ident,
+                ast.generics,
+                &ds.fields,
+                signature,
+                &zv,
+                rename_all,
+            ),
             Fields::Unit => Err(Error::new(ast.span(), "Unit structures not supported")),
         },
         Data::Enum(data) => impl_enum(value_type, ast.ident, ast.generics, ast.attrs, data, &zv),
@@ -136,7 +136,7 @@ fn impl_struct(
                     let (fields_init, entries_init): (TokenStream, TokenStream) = fields
                         .iter()
                         .map(|field| {
-                            let FieldAttributes { rename } =
+                            let FieldAttributes { rename, .. } =
                                 FieldAttributes::parse(&field.attrs).unwrap_or_default();
                             let field_name = field.ident.to_token_stream();
                             let key_name = rename_identifier(

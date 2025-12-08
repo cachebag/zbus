@@ -10,9 +10,14 @@ use zvariant_utils::signature::Signature;
 use crate::{signature::signature_to_tokens, utils::*};
 
 pub fn expand_derive(ast: DeriveInput) -> Result<TokenStream, Error> {
-    let StructAttributes { signature, .. } = StructAttributes::parse(&ast.attrs)?;
+    let StructAttributes {
+        signature,
+        crate_path: crate_attr,
+        ..
+    } = StructAttributes::parse(&ast.attrs)?;
+    let crate_path = parse_crate_path(crate_attr.as_deref())?;
 
-    let zv = zvariant_path();
+    let zv = zvariant_path(crate_path.as_ref());
     if let Some(signature_str) = signature {
         // Signature already provided, easy then!
 
