@@ -236,6 +236,27 @@ pub fn iter_meta_lists(
 ///
 /// Don't forget to add all the supported attributes to your proc macro definition.
 ///
+/// # Supporting the `crate` attribute
+///
+/// The macro supports a special `crate_path` field that maps to the `crate` attribute name.
+/// This allows users to specify custom crate paths (e.g., when they've renamed zbus/zvariant
+/// in their Cargo.toml). Example:
+///
+/// ```
+/// # use zvariant_utils::def_attrs;
+/// def_attrs! {
+///     crate zvariant;
+///
+///     pub MyAttributes("struct") {
+///         crate_path str
+///     };
+/// }
+/// ```
+///
+/// Users can then write `#[zvariant(crate = "my_renamed_crate")]` in their code.
+/// The field is named `crate_path` but matches the attribute `crate`.
+/// Access the value via `attrs.crate_path`.
+///
 /// # Calling the macro multiple times
 ///
 /// The macro generates static variables with hardcoded names. Calling the macro twice in the same
@@ -254,6 +275,11 @@ pub fn iter_meta_lists(
 /// 4. Invalid literal type for attributes with values.
 #[macro_export]
 macro_rules! def_attrs {
+    // Helper to get the attribute name string (for ALLOWED_ATTRS and matching)
+    // Special case: crate_path field -> matches "crate" attribute
+    (@attr_name crate_path $kind:tt) => { "crate" };
+    (@attr_name $attr_name:ident $kind:tt) => { ::std::stringify!($attr_name) };
+
     (@attr_ty str) => {::std::option::Option<::std::string::String>};
     (@attr_ty bool) => {::std::option::Option<bool>};
     (@attr_ty [str]) => {::std::option::Option<::std::vec::Vec<::std::string::String>>};
@@ -264,18 +290,31 @@ macro_rules! def_attrs {
             $($attr_name:ident $kind:tt),+
         }
     }) => {::std::option::Option<$name>};
-    (@match_attr_with $attr_name:ident, $meta:ident, $self:ident, $matched:expr) => {
+
+    (@match_attr_with $attr_name:ident, $meta:ident, $self:ident, $matched:expr, $display_name:expr) => {
         if let ::std::option::Option::Some(value) = $matched? {
             if $self.$attr_name.is_some() {
                 return ::std::result::Result::Err(::syn::Error::new(
                     $meta.span(),
-                    ::std::concat!("duplicate `", ::std::stringify!($attr_name), "` attribute")
+                    ::std::format!("duplicate `{}` attribute", $display_name)
                 ));
             }
 
             $self.$attr_name = ::std::option::Option::Some(value.value());
             return Ok(());
         }
+    };
+
+    // Special case: crate_path field matches "crate" attribute
+    (@match_attr str crate_path, $meta:ident, $self:ident) => {
+        $crate::def_attrs!(
+            @match_attr_with
+            crate_path,
+            $meta,
+            $self,
+            $crate::macros::match_attribute_with_str_value($meta, "crate"),
+            "crate"
+        )
     };
     (@match_attr str $attr_name:ident, $meta:ident, $self:ident) => {
         $crate::def_attrs!(
@@ -286,7 +325,8 @@ macro_rules! def_attrs {
             $crate::macros::match_attribute_with_str_value(
                 $meta,
                 ::std::stringify!($attr_name),
-            )
+            ),
+            ::std::stringify!($attr_name)
         )
     };
     (@match_attr bool $attr_name:ident, $meta:ident, $self:ident) => {
@@ -298,7 +338,8 @@ macro_rules! def_attrs {
             $crate::macros::match_attribute_with_bool_value(
                 $meta,
                 ::std::stringify!($attr_name),
-            )
+            ),
+            ::std::stringify!($attr_name)
         )
     };
     (@match_attr [str] $attr_name:ident, $meta:ident, $self:ident) => {
@@ -463,7 +504,7 @@ macro_rules! def_attrs {
         );+;
     ) => {
         static ALLOWED_ATTRS: &[&'static str] = &[
-            $($(::std::stringify!($attr_name),)+)+
+            $($($crate::def_attrs!(@attr_name $attr_name $kind),)+)+
         ];
 
         static ALLOWED_LISTS: &[&'static str] = &[
