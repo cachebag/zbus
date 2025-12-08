@@ -5,8 +5,19 @@ use proc_macro_crate::{crate_name, FoundCrate};
 use quote::{format_ident, quote};
 use syn::{Attribute, FnArg, Ident, Pat, PatIdent, PatType};
 
-pub fn zbus_path() -> TokenStream {
-    if let Ok(FoundCrate::Name(name)) = crate_name("zbus") {
+/// Parses the `crate` attribute value into an identifier.
+pub fn parse_crate_path(crate_attr: Option<&str>) -> Result<Option<syn::Ident>, syn::Error> {
+    crate_attr.map(syn::parse_str).transpose()
+}
+
+/// Returns the path to the zbus crate.
+///
+/// If a custom crate path is provided via the `crate` attribute, it will be used.
+/// Otherwise, uses `proc-macro-crate` to detect the crate name.
+pub fn zbus_path(crate_path: Option<&syn::Ident>) -> TokenStream {
+    if let Some(ident) = crate_path {
+        quote! { ::#ident }
+    } else if let Ok(FoundCrate::Name(name)) = crate_name("zbus") {
         let ident = format_ident!("{}", name);
         quote! { ::#ident }
     } else {

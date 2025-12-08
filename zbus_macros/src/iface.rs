@@ -25,6 +25,7 @@ def_attrs! {
         name str,
         spawn bool,
         introspection_docs bool,
+        crate_path str,
         proxy {
             // Keep this in sync with proxy's method attributes.
             // TODO: Find a way to share code with proxy module.
@@ -287,7 +288,9 @@ impl MethodInfo {
 }
 
 pub fn expand(args: Punctuated<Meta, Token![,]>, mut input: ItemImpl) -> syn::Result<TokenStream> {
-    let zbus = zbus_path();
+    let impl_attrs = ImplAttributes::parse_nested_metas(args)?;
+    let crate_path = parse_crate_path(impl_attrs.crate_path.as_deref())?;
+    let zbus = zbus_path(crate_path.as_ref());
 
     let self_ty = &input.self_ty;
     let mut properties = BTreeMap::new();
@@ -314,8 +317,6 @@ pub fn expand(args: Punctuated<Meta, Token![,]>, mut input: ItemImpl) -> syn::Re
         }
         _ => return Err(Error::new_spanned(&input.self_ty, "Invalid type")),
     };
-
-    let impl_attrs = ImplAttributes::parse_nested_metas(args)?;
     let iface_name = {
         match (impl_attrs.name, impl_attrs.interface) {
             // Ensure the interface name is valid.

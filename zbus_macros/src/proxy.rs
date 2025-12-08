@@ -1,4 +1,4 @@
-use crate::utils::{pat_ident, typed_arg, zbus_path, PropertyEmitsChangedSignal};
+use crate::utils::{parse_crate_path, pat_ident, typed_arg, zbus_path, PropertyEmitsChangedSignal};
 use proc_macro2::{Literal, Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::{
@@ -20,7 +20,8 @@ def_attrs! {
         async_name str,
         blocking_name str,
         gen_async bool,
-        gen_blocking bool
+        gen_blocking bool,
+        crate_path str
     };
 
     // Keep this in sync with interface's proxy method attributes.
@@ -64,6 +65,7 @@ impl AsyncOpts {
 
 pub fn expand(args: Punctuated<Meta, Token![,]>, input: ItemTrait) -> Result<TokenStream, Error> {
     let attrs = TraitAttributes::parse_nested_metas(args)?;
+    let crate_path = parse_crate_path(attrs.crate_path.as_deref())?;
 
     let iface_name = match (attrs.interface, attrs.name) {
         (Some(name), None) | (None, Some(name)) => Ok(Some(name)),
@@ -113,6 +115,7 @@ pub fn expand(args: Punctuated<Meta, Token![,]>, input: ItemTrait) -> Result<Tok
             // Signal args structs are shared between the two proxies so always generate it for
             // async proxy only unless async proxy generation is disabled.
             !gen_async,
+            crate_path.as_ref(),
         )?
     } else {
         quote! {}
@@ -130,6 +133,7 @@ pub fn expand(args: Punctuated<Meta, Token![,]>, input: ItemTrait) -> Result<Tok
             &proxy_name,
             false,
             true,
+            crate_path.as_ref(),
         )?
     } else {
         quote! {}
@@ -152,8 +156,9 @@ pub fn create_proxy(
     proxy_name: &str,
     blocking: bool,
     gen_sig_args: bool,
+    crate_path: Option<&Ident>,
 ) -> Result<TokenStream, Error> {
-    let zbus = zbus_path();
+    let zbus = zbus_path(crate_path);
 
     let other_attrs: Vec<_> = input
         .attrs
@@ -248,6 +253,7 @@ pub fn create_proxy(
                     m,
                     &async_opts,
                     emits_changed_signal,
+                    &zbus,
                 )
             } else if is_signal {
                 let (method, types) = gen_proxy_signal(
@@ -259,6 +265,7 @@ pub fn create_proxy(
                     &async_opts,
                     visibility,
                     gen_sig_args,
+                    &zbus,
                 );
                 stream_types.extend(types);
 
@@ -270,6 +277,7 @@ pub fn create_proxy(
                     m,
                     method_attrs,
                     &async_opts,
+                    &zbus,
                 )?
             };
             methods.extend(m);
@@ -479,13 +487,13 @@ fn gen_proxy_method_call(
     m: &TraitItemFn,
     method_attrs: MethodAttributes,
     async_opts: &AsyncOpts,
+    zbus: &TokenStream,
 ) -> Result<TokenStream, Error> {
     let AsyncOpts {
         usage,
         wait,
         blocking,
     } = async_opts;
-    let zbus = zbus_path();
     let other_attrs: Vec<_> = m
         .attrs
         .iter()
@@ -676,13 +684,13 @@ fn gen_proxy_property(
     m: &TraitItemFn,
     async_opts: &AsyncOpts,
     emits_changed_signal: PropertyEmitsChangedSignal,
+    zbus: &TokenStream,
 ) -> TokenStream {
     let AsyncOpts {
         usage,
         wait,
         blocking,
     } = async_opts;
-    let zbus = zbus_path();
     let other_attrs: Vec<_> = m
         .attrs
         .iter()
@@ -809,13 +817,13 @@ fn gen_proxy_signal(
     async_opts: &AsyncOpts,
     visibility: &Visibility,
     gen_sig_args: bool,
+    zbus: &TokenStream,
 ) -> (TokenStream, TokenStream) {
     let AsyncOpts {
         usage,
         wait,
         blocking,
     } = async_opts;
-    let zbus = zbus_path();
     let other_attrs: Vec<_> = method
         .attrs
         .iter()

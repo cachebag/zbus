@@ -8,7 +8,8 @@ def_attrs! {
 
     pub StructAttributes("struct") {
         prefix str,
-        impl_display bool
+        impl_display bool,
+        crate_path str
     };
 
     pub VariantAttributes("enum variant") {
@@ -23,7 +24,9 @@ pub fn expand_derive(input: DeriveInput) -> Result<TokenStream, Error> {
     let StructAttributes {
         prefix,
         impl_display,
+        crate_path: crate_attr,
     } = StructAttributes::parse(&input.attrs)?;
+    let crate_path = parse_crate_path(crate_attr.as_deref())?;
     let prefix = prefix.unwrap_or_else(|| "org.freedesktop.DBus".to_string());
     let generate_display = impl_display.unwrap_or(true);
 
@@ -32,7 +35,7 @@ pub fn expand_derive(input: DeriveInput) -> Result<TokenStream, Error> {
         _ => return Err(Error::new(input.span(), "only enums supported")),
     };
 
-    let zbus = zbus_path();
+    let zbus = zbus_path(crate_path.as_ref());
     let mut replies = quote! {};
     let mut error_names = quote! {};
     let mut error_descriptions = quote! {};
@@ -134,7 +137,7 @@ pub fn expand_derive(input: DeriveInput) -> Result<TokenStream, Error> {
             error_converts.extend(e);
         }
 
-        let r = gen_reply_for_variant(&variant, error)?;
+        let r = gen_reply_for_variant(&variant, error, &zbus)?;
         replies.extend(r);
     }
 
@@ -204,8 +207,8 @@ pub fn expand_derive(input: DeriveInput) -> Result<TokenStream, Error> {
 fn gen_reply_for_variant(
     variant: &Variant,
     zbus_error_variant: bool,
+    zbus: &TokenStream,
 ) -> Result<TokenStream, Error> {
-    let zbus = zbus_path();
     let ident = &variant.ident;
     match &variant.fields {
         Fields::Unit => Ok(quote! {
