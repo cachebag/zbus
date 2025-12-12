@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use zvariant::{serialized::Context, to_bytes, Type, LE};
 

@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use zvariant::{serialized::Context, to_bytes_for_signature};
 
 #[macro_use]

@@ -1,6 +1,6 @@
 use test_log::test;
 
-use zvariant::{OwnedObjectPath, OwnedValue, Type};
+use zvariant::OwnedObjectPath;
 
 #[test]
 #[ignore]
