@@ -289,6 +289,33 @@ impl ObjectServer {
         })
     }
 
+    /// Handle org.freedesktop.DBus.Peer interface methods on any path.
+    ///
+    /// According to the D-Bus specification, the Peer interface methods (Ping and GetMachineId)
+    /// must work on any object path, not just registered ones.
+    /// See: https://dbus.freedesktop.org/doc/dbus-specification.html#standard-interfaces-peer
+    async fn handle_peer_interface(
+        &self,
+        connection: &Connection,
+        hdr: &Header<'_>,
+        member: &str,
+    ) -> fdo::Result<()> {
+        match member {
+            "Ping" => {
+                connection.reply(hdr, &()).await?;
+                Ok(())
+            }
+            "GetMachineId" => {
+                let id = fdo::get_machine_id()?;
+                connection.reply(hdr, &id).await?;
+                Ok(())
+            }
+            _ => Err(fdo::Error::UnknownMethod(format!(
+                "Unknown method '{member}' on org.freedesktop.DBus.Peer"
+            ))),
+        }
+    }
+
     async fn dispatch_call_to_iface(
         &self,
         iface: Arc<RwLock<dyn Interface>>,
@@ -361,9 +388,17 @@ impl ObjectServer {
         // Note that an unknown member will still spawn a task. We should instead gather
         // all the details for the call before spawning.
         // See also https://github.com/z-galaxy/zbus/issues/674 for future of Interface.
-        let _ = hdr
+        let member = hdr
             .member()
             .ok_or_else(|| fdo::Error::Failed("Missing member".into()))?;
+
+        // D-Bus spec: org.freedesktop.DBus.Peer interface works on ANY path, even unregistered
+        // ones. See: https://dbus.freedesktop.org/doc/dbus-specification.html#standard-interfaces-peer
+        if iface_name.as_str() == "org.freedesktop.DBus.Peer" {
+            return self
+                .handle_peer_interface(connection, hdr, member.as_str())
+                .await;
+        }
 
         // Ensure the root lock isn't held while dispatching the message. That
         // way, the object server can be mutated during that time.

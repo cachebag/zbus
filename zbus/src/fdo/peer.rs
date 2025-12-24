@@ -34,7 +34,7 @@ impl Peer {
 }
 
 #[cfg(target_os = "linux")]
-fn get_machine_id() -> Result<String> {
+pub(crate) fn get_machine_id() -> Result<String> {
     let mut id = match std::fs::read_to_string("/var/lib/dbus/machine-id") {
         Ok(id) => id,
         Err(e) => {
@@ -54,7 +54,7 @@ fn get_machine_id() -> Result<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn get_machine_id() -> Result<String> {
+pub(crate) fn get_machine_id() -> Result<String> {
     unsafe extern "C" {
         fn gethostuuid(id: *mut u8, wait: *const libc::timespec) -> libc::c_int;
     }
@@ -78,14 +78,14 @@ fn get_machine_id() -> Result<String> {
 
 // TODO: Implement for *BSD platforms.
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
-fn get_machine_id() -> Result<String> {
+pub(crate) fn get_machine_id() -> Result<String> {
     Err(Error::NotSupported(
         "get_machine_id is not yet implemented on this platform".to_string(),
     ))
 }
 
 #[cfg(windows)]
-fn get_machine_id() -> Result<String> {
+pub(crate) fn get_machine_id() -> Result<String> {
     crate::win32::machine_id().map_err(|e| Error::IOError(e.to_string()))
 }
 
