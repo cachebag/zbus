@@ -26,8 +26,12 @@ impl Peer {
     /// if possible, but this is not always possible to implement and is not guaranteed. It does not
     /// matter which object path a GetMachineId is sent to.
     ///
-    /// Note: Currently only implemented for Linux, macOS, and Windows. On other Unix platforms
-    /// (*BSD), this method returns a `NotSupported` error.
+    /// This method is implemented for:
+    /// - Linux: Reads from `/var/lib/dbus/machine-id` or `/etc/machine-id`
+    /// - macOS: Uses `gethostuuid()` system call
+    /// - FreeBSD/DragonFlyBSD: Reads from standard D-Bus locations, falls back to `kern.hostuuid`
+    /// - OpenBSD/NetBSD: Reads from standard D-Bus locations (`/var/db/dbus/machine-id`, etc.)
+    /// - Windows: Uses Windows hardware profile GUID
     fn get_machine_id(&self) -> Result<String> {
         get_machine_id()
     }
@@ -76,8 +80,120 @@ fn get_machine_id() -> Result<String> {
     Ok(uuid.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-// TODO: Implement for *BSD platforms.
-#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+/// Try to read machine ID from standard D-Bus locations.
+/// Returns the machine ID if found at any of the standard paths.
+#[cfg(any(
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "openbsd",
+    target_os = "netbsd"
+))]
+fn try_read_dbus_machine_id() -> Option<String> {
+    // Standard D-Bus machine-id locations
+    const MACHINE_ID_PATHS: &[&str] = &[
+        "/var/lib/dbus/machine-id",
+        "/etc/machine-id",
+        "/var/db/dbus/machine-id",
+    ];
+
+    for path in MACHINE_ID_PATHS {
+        if let Ok(mut id) = std::fs::read_to_string(path) {
+            let len = id.trim_end().len();
+            id.truncate(len);
+            if !id.is_empty() {
+                return Some(id);
+            }
+        }
+    }
+    None
+}
+
+/// Get the machine ID on FreeBSD or DragonFlyBSD using the kern.hostuuid sysctl.
+/// This returns a UUID that is typically generated at install time and persists across reboots.
+#[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
+fn get_hostuuid_sysctl() -> Result<String> {
+    use std::ffi::CStr;
+
+    // kern.hostuuid sysctl
+    let mut buf = [0u8; 64];
+    let mut len = buf.len();
+
+    let mib_name = c"kern.hostuuid";
+    let ret = unsafe {
+        libc::sysctlbyname(
+            mib_name.as_ptr(),
+            buf.as_mut_ptr() as *mut libc::c_void,
+            &mut len,
+            std::ptr::null(),
+            0,
+        )
+    };
+
+    if ret != 0 {
+        return Err(Error::IOError(format!(
+            "sysctlbyname(kern.hostuuid) failed: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+
+    // The sysctl returns a null-terminated UUID string
+    // e.g. "01234567-89ab-cdef-0123-456789abcdef"
+    let uuid_str = CStr::from_bytes_until_nul(&buf[..len])
+        .map_err(|e| Error::IOError(format!("Invalid UTF-8 in hostuuid: {e}")))?
+        .to_str()
+        .map_err(|e| Error::IOError(format!("Invalid UTF-8 in hostuuid: {e}")))?;
+
+    // Remove hyphens and convert to the expected 32-character hex format
+    let machine_id: String = uuid_str.chars().filter(|c| *c != '-').collect();
+
+    if machine_id.len() != 32 || !machine_id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(Error::IOError(format!(
+            "Invalid hostuuid format: {uuid_str}"
+        )));
+    }
+
+    Ok(machine_id)
+}
+
+#[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
+fn get_machine_id() -> Result<String> {
+    // First try standard D-Bus machine-id locations
+    if let Some(id) = try_read_dbus_machine_id() {
+        return Ok(id);
+    }
+
+    // Fall back to kern.hostuuid sysctl
+    get_hostuuid_sysctl()
+}
+
+#[cfg(any(target_os = "openbsd", target_os = "netbsd"))]
+fn get_machine_id() -> Result<String> {
+    // Same here, first try standard D-Bus machine-id locations
+    if let Some(id) = try_read_dbus_machine_id() {
+        return Ok(id);
+    }
+
+    // OpenBSD and NetBSD don't have a built-in machine UUID mechanism.
+    // The D-Bus package typically creates /var/db/dbus/machine-id on installation.
+    Err(Error::IOError(
+        "No machine-id found. Please ensure D-Bus is properly installed and \
+         /var/db/dbus/machine-id or /etc/machine-id exists."
+            .to_string(),
+    ))
+}
+
+/// Fallback for other Unix platforms not explicitly supported.
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "openbsd",
+        target_os = "netbsd"
+    ))
+))]
 fn get_machine_id() -> Result<String> {
     Err(Error::NotSupported(
         "get_machine_id is not yet implemented on this platform".to_string(),
@@ -114,5 +230,32 @@ mod tests {
             id.chars().all(|c| c.is_ascii_hexdigit()),
             "machine ID should only contain hex characters"
         );
+    }
+
+    #[test]
+    #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
+    fn freebsd_machine_id() {
+        // On FreeBSD/DragonFlyBSD, we should always be able to get a machine ID
+        // either from D-Bus machine-id files or from kern.hostuuid sysctl.
+        let id = get_machine_id().expect("should get machine ID on FreeBSD/DragonFlyBSD");
+        assert_eq!(id.len(), 32, "machine ID should be 32 hex characters");
+        assert!(
+            id.chars().all(|c| c.is_ascii_hexdigit()),
+            "machine ID should only contain hex characters"
+        );
+    }
+
+    #[test]
+    #[cfg(any(target_os = "openbsd", target_os = "netbsd"))]
+    fn openbsd_netbsd_machine_id() {
+        // On OpenBSD/NetBSD, machine ID is only available if D-Bus is installed
+        // and has created the machine-id file.
+        if let Ok(id) = get_machine_id() {
+            assert_eq!(id.len(), 32, "machine ID should be 32 hex characters");
+            assert!(
+                id.chars().all(|c| c.is_ascii_hexdigit()),
+                "machine ID should only contain hex characters"
+            );
+        }
     }
 }
